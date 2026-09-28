@@ -1,0 +1,98 @@
+CREATE DATABASE IF NOT EXISTS transitosv CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE transitosv;
+
+-- 1. Tabla de Usuarios (Pasajeros y Administradores)
+CREATE TABLE usuarios (
+    id_usuario INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    correo VARCHAR(150) NOT NULL UNIQUE,
+    contraseña VARCHAR(255) NOT NULL,
+    rol VARCHAR(50) DEFAULT 'pasajero' -- Valores: pasajero, admin
+) ENGINE=InnoDB;
+
+-- 2. Tabla de Rutas de Transporte (ej. Ruta 30, Ruta 101-D, Ruta 44)
+CREATE TABLE rutas (
+    id_ruta INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    lista_paradas TEXT NOT NULL -- Puede almacenar los puntos o JSON con las paradas clave
+) ENGINE=InnoDB;
+
+-- 3. Tabla de Unidades de Transporte (Buses y Microbuses con IoT)
+CREATE TABLE unidades_transporte (
+    id_unidad INT AUTO_INCREMENT PRIMARY KEY,
+    coordenadas VARCHAR(100) NOT NULL, -- Lat, Lng actual en tiempo real
+    velocidad DECIMAL(5,2) DEFAULT 0.00, -- Velocidad en km/h
+    estado VARCHAR(50) NOT NULL, -- Valores: activo, en parada, inactivo
+    id_ruta INT NOT NULL,
+    CONSTRAINT fk_unidad_ruta FOREIGN KEY (id_ruta) REFERENCES rutas(id_ruta) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 4. Tabla de Consultas (Historial de búsqueda de rutas y chat de IA por usuario)
+CREATE TABLE consultas (
+    id_consulta INT AUTO_INCREMENT PRIMARY KEY,
+    origen VARCHAR(150) NOT NULL,
+    destino VARCHAR(150) NOT NULL,
+    tiempo_estimado INT NULL, -- Tiempo estimado en minutos devuelto por la IA
+    id_usuario INT NOT NULL,
+    CONSTRAINT fk_consulta_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- 5. Tabla de Telemetría (Historial de coordenadas enviadas por los dispositivos IoT)
+CREATE TABLE telemetria (
+    id_registro INT AUTO_INCREMENT PRIMARY KEY,
+    fecha_hora DATETIME NOT NULL,
+    coordenadas VARCHAR(100) NOT NULL,
+    velocidad DECIMAL(5,2) DEFAULT 0.00,
+    id_unidad INT NOT NULL,
+    CONSTRAINT fk_telemetria_unidad FOREIGN KEY (id_unidad) REFERENCES unidades_transporte(id_unidad) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+--INSERTS (transitosv rutas, usuarios, unidades de transporte)
+
+INSERT INTO rutas (nombre, lista_paradas) VALUES 
+('Ruta 101-D', 'Santa Tecla, Parque Daniel Hernández, Paseo General Escalón, Redondel Masferrer, Metrocentro, Parque Infantil, Centro Histórico, 4ª Calle Poniente'),
+('Ruta 44', 'Antiguo Cuscatlán, Multiplaza, Redondel Luceiro, Universidad de El Salvador (UES), Redondel Schafik Hándal, Metrocentro, Mercado Central'),
+('Ruta 30', 'Universidad de El Salvador (UES), Plaza de la Salud, Maternidad, Metrocentro, San Jacinto'),
+('Ruta 52 (Escalón)', 'Colonia Escalón, Paseo General Escalón, Redondel Altagracia, Centro de San Salvador, Plaza Mundo'),
+('Ruta 42-B', 'Santa Tecla, Merliot, Carretera Panamericana, Salvador del Mundo, Centro de San Salvador'),
+('Ruta 29-A', 'Soyapango, Plaza Mundo, Boulevard del Ejército, Terminal de Buses del Sur, Centro Histórico');
+
+-- Insertar un usuario de prueba (contraseña cifrada de ejemplo)
+INSERT INTO usuarios (nombre, correo, contraseña, rol) VALUES 
+('Gabriel Martínez', 'gabriel@transitosv.com', '$2y$10$EjemploContrasenaHashBcrypt', 'admin'),
+('Diego Rivas', 'diego@transitosv.com', '$2y$10$EjemploContrasenaHashBcrypt', 'pasajero');
+
+-- Insertar unidades de transporte IoT asociadas a las rutas
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.7000, -89.2000', 25.50, 'activo', 1), -- Unidad de la Ruta 101-D
+('13.6900, -89.1900', 0.00, 'en parada', 2); -- Unidad de la Ruta 44
+
+-- Unidades asociadas a la Ruta 101-D (id_ruta = 1)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.6988, -89.2445', 28.50, 'activo', 1), -- Cerca de Santa Tecla
+('13.7012, -89.2150', 15.20, 'en parada', 1), -- Cerca de Paseo General Escalón
+('13.7000, -89.2000', 35.00, 'activo', 1); -- Cerca de Metrocentro
+
+-- Unidades asociadas a la Ruta 44 (id_ruta = 2)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.6823, -89.2371', 0.00, 'en parada', 2), -- Cerca de Multiplaza / Antiguo Cuscatlán
+('13.7150, -89.2210', 22.40, 'activo', 2); -- Cerca de la UES
+
+-- Unidades asociadas a la Ruta 30 (id_ruta = 3)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.7205, -89.2118', 19.80, 'activo', 3), -- Cerca de la UES / Plaza de la Salud
+('13.6950, -89.1920', 0.00, 'inactivo', 3); -- En base / San Jacinto
+
+-- Unidades asociadas a la Ruta 52 (id_ruta = 4)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.7050, -89.2250', 30.10, 'activo', 4); -- Colonia Escalón
+
+-- Unidades asociadas a la Ruta 42-B (id_ruta = 5)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.6990, -89.2310', 12.00, 'en parada', 5), -- Salvador del Mundo
+('13.7020, -89.1980', 25.00, 'activo', 5); -- Centro de San Salvador
+
+-- Unidades asociadas a la Ruta 29-A (id_ruta = 6)
+INSERT INTO unidades_transporte (coordenadas, velocidad, estado, id_ruta) VALUES 
+('13.7120, -89.1450', 40.00, 'activo', 6); -- Boulevard del Ejército (Soyapango)
