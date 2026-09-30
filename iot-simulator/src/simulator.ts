@@ -6,13 +6,14 @@ import { config } from './config.js';
 export type Estado = 'activo' | 'en parada' | 'inactivo';
 
 
-export interface Telemetria {
+ export interface Telemetria {
   id_unidad: number;
+  coordenadas: string;
   latitud: number;
   longitud: number;
-  velocidad: number;
+  velocidad: number; 
   estado: Estado;
-  timestamp: string; 
+  timestamp: string;
 }
 
 const RADIO_TIERRA_KM = 6371;
@@ -121,13 +122,16 @@ class Unidad {
   }
   
 
-  lectura(): Telemetria {
+   lectura(): Telemetria {
     const p = this.posicion();
     const ruido = () => (Math.random() - 0.5) * 0.00006;  
+    const latitud = redondear(p.lat + ruido(), 6);
+    const longitud = redondear(p.lng + ruido(), 6);
     return {
       id_unidad: this.id,
-      latitud: redondear(p.lat + ruido(), 6),
-      longitud: redondear(p.lng + ruido(), 6),
+      coordenadas: `${latitud.toFixed(6)}, ${longitud.toFixed(6)}`,
+      latitud,
+      longitud,
       velocidad: redondear(this.velocidad, 2),
       estado: this.estado,
       timestamp: new Date().toISOString(),

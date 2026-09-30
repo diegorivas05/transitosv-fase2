@@ -7,7 +7,7 @@ try {
 }
 
 const PUERTO = Number(process.env.MOCK_PORT ?? 4000);
-const RUTA = process.env.TELEMETRY_PATH ?? '/api/telemetria';
+ const RUTA = process.env.TELEMETRY_PATH ?? '/api/unidades/telemetria';
 const API_KEY = process.env.IOT_API_KEY ?? '';
 
 const ultimas = new Map<number, unknown>();
