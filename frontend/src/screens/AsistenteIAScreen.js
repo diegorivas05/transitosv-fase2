@@ -10,288 +10,214 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../config/api';
+import api from '../config/api';
 
 export default function AsistenteIAScreen() {
-  const [messages, setMessages] = useState([
+  const [mensajes, setMensajes] = useState([
     {
       id: '1',
-      text: '¡Hola! Soy tu asistente de transporte inteligente. ¿En qué puedo ayudarte hoy?',
-      sender: 'bot',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      emisor: 'ia',
+      texto: '¡Hola! Soy el asistente inteligente de TránsitoSV. ¿En qué te puedo ayudar hoy con respecto al tráfico, rutas o estado de la flota?',
+      hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
-  const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const flatListRef = useRef();
+  const [inputTexto, setInputTexto] = useState('');
+  const [cargando, setCargando] = useState(false);
+  const flatListRef = useRef(null);
 
-  const sugerencias = [
-    '¿Cuántas unidades están activas?',
-    '¿Cuál es el estado de la Ruta 44?',
-    'Reporte de velocidad promedio',
-  ];
+  const enviarMensaje = async () => {
+    // 1. Evita envíos vacíos o peticiones dobles cuando ya está cargando
+    if (!inputTexto.trim() || cargando) return;
 
-  const enviarMensaje = async (textoAEnviar) => {
-    const mensajeTexto = textoAEnviar || inputText;
-    if (!mensajeTexto.trim()) return;
+    const textoUsuario = inputTexto.trim();
+    const horaEnvio = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // 1. Crear y agregar el mensaje del usuario
-    const userMsg = {
+    const nuevoMensajeUsuario = {
       id: Date.now().toString(),
-      text: mensajeTexto,
-      sender: 'user',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      emisor: 'usuario',
+      texto: textoUsuario,
+      hora: horaEnvio,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputText('');
-    setLoading(true);
+    setMensajes((prev) => [...prev, nuevoMensajeUsuario]);
+    setInputTexto('');
+    setCargando(true);
 
     try {
-      // 2. Consulta al Backend
-      const response = await api.post('/asistente/chat', { mensaje: mensajeTexto });
+      // 2. Petición al endpoint del backend donde corre Gemini
+      const res = await api.post('/asistente/chat', { mensaje: textoUsuario });
       
-      const botReplyText = response.data?.respuesta || response.data?.message || 'Procesé tu consulta correctamente.';
+      const respuestaTexto = res.data?.respuesta || res.data?.mensaje;
 
-      const botMsg = {
-        id: (Date.now() + 1).toString(),
-        text: botReplyText,
-        sender: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setMessages((prev) => [...prev, botMsg]);
+      if (respuestaTexto) {
+        agregarRespuestaIA(respuestaTexto);
+      } else {
+        agregarRespuestaIA('No pude obtener una respuesta válida del servidor telemático.');
+      }
     } catch (error) {
-      console.log('Error al comunicarse con la IA:', error);
-      
-      // Mensaje de respuesta por defecto si falla el endpoint del backend temporalmente
-      const errorMsg = {
-        id: (Date.now() + 1).toString(),
-        text: 'Ocurrió una falla al conectar con el servidor de IA. Asegúrate de que la ruta /asistente/chat esté disponible en el Backend.',
-        sender: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      console.log('Error conectando con la IA del backend:', error?.response?.data || error.message);
+      agregarRespuestaIA('El servicio de IA no está disponible en este momento. Verifica que el servidor backend esté activo.');
     } finally {
-      setLoading(false);
+      setCargando(false);
     }
   };
 
+  const agregarRespuestaIA = (texto) => {
+    const nuevoMensajeIA = {
+      id: (Date.now() + 1).toString(),
+      emisor: 'ia',
+      texto: texto,
+      hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMensajes((prev) => [...prev, nuevoMensajeIA]);
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {/* CABECERA DE LA PANTALLA */}
-      <View style={styles.header}>
-        <View style={styles.botIconContainer}>
-          <Ionicons name="sparkles" size={20} color="#38BDF8" />
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* CABECERA / HEADER */}
+        <View style={styles.header}>
+          <Ionicons name="sparkles-outline" size={24} color="#38BDF8" />
+          <View>
+            <Text style={styles.headerTitle}>Asistente TránsitoSV</Text>
+            <Text style={styles.headerSubtitle}>Monitoreo y Consultas Inteligentes</Text>
+          </View>
         </View>
-        <View>
-          <Text style={styles.headerTitle}>Asistente de Tránsito IA</Text>
-          <Text style={styles.headerSubtitle}>En línea • Respuestas en tiempo real</Text>
-        </View>
-      </View>
 
-      {/* SUGERENCIAS RÁPIDAS */}
-      <View style={styles.sugerenciasContainer}>
+        {/* LISTA DE MENSAJES */}
         <FlatList
-          data={sugerencias}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(item, index) => index.toString()}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.chip}
-              onPress={() => enviarMensaje(item)}
-            >
-              <Ionicons name="chatbubble-ellipses-outline" size={14} color="#38BDF8" />
-              <Text style={styles.chipText}>{item}</Text>
-            </TouchableOpacity>
-          )}
+          ref={flatListRef}
+          data={mensajes}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.chatList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          renderItem={({ item }) => {
+            const esUsuario = item.emisor === 'usuario';
+            return (
+              <View
+                style={[
+                  styles.burbujaContainer,
+                  esUsuario ? styles.containerUsuario : styles.containerIA,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.burbuja,
+                    esUsuario ? styles.burbujaUsuario : styles.burbujaIA,
+                  ]}
+                >
+                  <Text style={styles.mensajeTexto}>{item.texto}</Text>
+                  <Text style={styles.horaTexto}>{item.hora}</Text>
+                </View>
+              </View>
+            );
+          }}
         />
-      </View>
 
-      {/* LISTA DE MENSAJES (CHAT) */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messagesList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        renderItem={({ item }) => {
-          const isUser = item.sender === 'user';
-          return (
-            <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.botBubble]}>
-              <Text style={styles.messageText}>{item.text}</Text>
-              <Text style={styles.timeText}>{item.timestamp}</Text>
-            </View>
-          );
-        }}
-      />
+        {cargando && (
+          <View style={styles.indicadorCargando}>
+            <ActivityIndicator size="small" color="#38BDF8" />
+            <Text style={styles.cargandoTexto}>Consultando datos de la flota...</Text>
+          </View>
+        )}
 
-      {/* INDICADOR DE PENSANDO */}
-      {loading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color="#38BDF8" />
-          <Text style={styles.loadingText}>La IA está analizando la información...</Text>
+        {/* CAMPO DE ENTRADA / INPUT BAR */}
+        <View style={styles.inputBarra}>
+          <TextInput
+            style={styles.input}
+            placeholder="Escribe una pregunta sobre la flota..."
+            placeholderTextColor="#64748B"
+            value={inputTexto}
+            onChangeText={setInputTexto}
+            onSubmitEditing={enviarMensaje}
+          />
+          <TouchableOpacity 
+            style={[styles.botonEnviar, cargando && { backgroundColor: '#64748B' }]} 
+            onPress={enviarMensaje}
+            disabled={cargando}
+          >
+            <Ionicons name="send" size={18} color="#FFF" />
+          </TouchableOpacity>
         </View>
-      )}
-
-      {/* BARRA DE ENTRADA DE TEXTO */}
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Escribe tu consulta sobre el transporte..."
-          placeholderTextColor="#64748B"
-          value={inputText}
-          onChangeText={setInputText}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-          onPress={() => enviarMensaje(inputText)}
-          disabled={!inputText.trim() || loading}
-        >
-          <Ionicons name="send" size={18} color="#FFF" />
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-  },
+  safeArea: { flex: 1, backgroundColor: '#0F172A' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: 12,
+    padding: 16,
     backgroundColor: '#1E293B',
     borderBottomWidth: 1,
     borderBottomColor: '#334155',
-    gap: 12,
   },
-  botIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderColor: '#38BDF8',
-    borderWidth: 1,
-  },
-  headerTitle: {
-    color: '#F8FAFC',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  headerSubtitle: {
-    color: '#22C55E',
-    fontSize: 12,
-  },
-  sugerenciasContainer: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginRight: 8,
-    borderColor: '#334155',
-    borderWidth: 1,
-    gap: 6,
-  },
-  chipText: {
-    color: '#94A3B8',
-    fontSize: 12,
-  },
-  messagesList: {
-    padding: 16,
-    gap: 12,
-  },
-  messageBubble: {
+  headerTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
+  headerSubtitle: { color: '#38BDF8', fontSize: 12 },
+  chatList: { padding: 16, paddingBottom: 20 },
+  burbujaContainer: { marginBottom: 12, flexDirection: 'row' },
+  containerUsuario: { justifyContent: 'flex-end' },
+  containerIA: { justifyContent: 'flex-start' },
+  burbuja: {
     maxWidth: '80%',
-    padding: 12,
     borderRadius: 16,
-    marginBottom: 8,
+    padding: 12,
   },
-  userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#0284C7',
-    borderBottomRightRadius: 2,
+  burbujaUsuario: {
+    backgroundColor: '#2563EB',
+    borderBottomRightRadius: 4,
   },
-  botBubble: {
-    alignSelf: 'flex-start',
+  burbujaIA: {
     backgroundColor: '#1E293B',
+    borderBottomLeftRadius: 4,
     borderColor: '#334155',
     borderWidth: 1,
-    borderBottomLeftRadius: 2,
   },
-  messageText: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  timeText: {
-    color: '#94A3B8',
-    fontSize: 10,
-    alignSelf: 'flex-end',
-    marginTop: 4,
-  },
-  loadingContainer: {
+  mensajeTexto: { color: '#F8FAFC', fontSize: 14, lineHeight: 20 },
+  horaTexto: { color: '#94A3B8', fontSize: 10, marginTop: 4, textAlign: 'right' },
+  indicadorCargando: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
   },
-  loadingText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  inputContainer: {
+  cargandoTexto: { color: '#94A3B8', fontSize: 12 },
+  inputBarra: {
     flexDirection: 'row',
-    alignItems: 'center',
     padding: 12,
     backgroundColor: '#1E293B',
     borderTopWidth: 1,
     borderTopColor: '#334155',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
   },
   input: {
     flex: 1,
     backgroundColor: '#0F172A',
-    color: '#F8FAFC',
     borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    maxHeight: 100,
+    paddingVertical: 10,
+    color: '#FFF',
     fontSize: 14,
     borderColor: '#334155',
     borderWidth: 1,
   },
-  sendButton: {
+  botonEnviar: {
     backgroundColor: '#0284C7',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#334155',
   },
 });

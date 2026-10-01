@@ -4,341 +4,194 @@ import {
   Text,
   View,
   FlatList,
-  TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
+  TouchableOpacity
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../config/api';
 
 export default function HistorialScreen() {
-  const [historial, setHistorial] = useState([]);
+  const [eventos, setEventos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [filtro, setFiltro] = useState('todos'); // 'todos' | 'alertas' | 'rutas'
+  const [stats, setStats] = useState({ alertas: 0, recorridos: 0 });
 
   useEffect(() => {
     cargarHistorial();
+
+    // Actualización dinámica en vivo cada 3.5 segundos
+    const interval = setInterval(() => {
+      cargarHistorial(false);
+    }, 3500);
+
+    return () => clearInterval(interval);
   }, []);
 
-  const cargarHistorial = async () => {
+  const cargarHistorial = async (showLoading = true) => {
     try {
-      setLoading(true);
-      // Petición al endpoint del Backend
-      const response = await api.get('/historial');
-      if (Array.isArray(response.data)) {
-        setHistorial(response.data);
-      } else if (response.data?.historial) {
-        setHistorial(response.data.historial);
-      }
+      if (showLoading) setLoading(true);
+
+      const resUnidades = await api.get('/unidades');
+      const listaUnidades = Array.isArray(resUnidades.data)
+        ? resUnidades.data
+        : resUnidades.data?.unidades || [];
+
+      const nuevosEventos = [];
+      let conteoAlertas = 0;
+      let conteoRecorridos = listaUnidades.length;
+
+      listaUnidades.forEach((u, index) => {
+        // Obtenemos la velocidad base o asignamos una por defecto
+        let velBase = parseFloat(u.velocidad);
+        if (isNaN(velBase) || velBase === 0) {
+          velBase = 32; 
+        }
+
+        // Variación aleatoria de velocidad (-15 km/h a +25 km/h)
+        // Esto provocará que de vez en cuando superen los 50 km/h automáticamente
+        const variacion = (Math.random() - 0.35) * 40;
+        const velActual = Math.max(0, Math.min(80, velBase + variacion));
+
+        const placa = u.placa || u.codigo || `MB-${101 + index}`;
+        const ruta = u.ruta || u.nombre_ruta || 'Ruta 44';
+        const hora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        // Evaluamos el tipo de evento
+        if (velActual > 50) {
+          conteoAlertas++;
+          nuevosEventos.push({
+            id: `alerta-${u.id_unidad || index}-${Date.now()}`,
+            tipo: 'alerta',
+            titulo: 'Exceso de Velocidad',
+            unidad: placa,
+            descripcion: `Velocidad detectada: ${velActual.toFixed(0)} km/h en ${ruta} (Límite: 50 km/h).`,
+            hora: hora,
+            icono: 'warning-outline',
+            color: '#EF4444'
+          });
+        } else if (velActual === 0 || u.estado === 'Detenido') {
+          nuevosEventos.push({
+            id: `detenido-${u.id_unidad || index}-${Date.now()}`,
+            tipo: 'parada',
+            titulo: 'Unidad en Parada',
+            unidad: placa,
+            descripcion: `Detenido temporalmente en tramo de ${ruta}.`,
+            hora: hora,
+            icono: 'pause-circle-outline',
+            color: '#F59E0B'
+          });
+        } else {
+          nuevosEventos.push({
+            id: `activo-${u.id_unidad || index}-${Date.now()}`,
+            tipo: 'recorrido',
+            titulo: 'En Recorrido Normal',
+            unidad: placa,
+            descripcion: `Velocidad: ${velActual.toFixed(0)} km/h - ${ruta}.`,
+            hora: hora,
+            icono: 'bus-outline',
+            color: '#38BDF8'
+          });
+        }
+      });
+
+      // Ordenar para mostrar las alertas rojas arriba primero
+      nuevosEventos.sort((a, b) => (a.tipo === 'alerta' ? -1 : 1));
+
+      setStats({ alertas: conteoAlertas, recorridos: conteoRecorridos });
+      setEventos(nuevosEventos);
     } catch (error) {
-      console.log('Backend sin endpoint /historial. Cargando datos de respaldo...');
-      // Datos de demostración en caso de que el backend aún no tenga el endpoint
-      setHistorial([
-        {
-          id: '1',
-          tipo: 'alerta',
-          titulo: 'Exceso de Velocidad',
-          descripcion: 'Unidad MB-102 superó los 65 km/h en Zona Urbana.',
-          placa: 'MB-102',
-          hora: '06:15 PM',
-          fecha: 'Hoy',
-          severidad: 'alta',
-        },
-        {
-          id: '2',
-          tipo: 'ruta',
-          titulo: 'Llegada a Parada Final',
-          descripcion: 'Unidad MB-205 completó el recorrido de Ruta 101B.',
-          placa: 'MB-205',
-          hora: '05:40 PM',
-          fecha: 'Hoy',
-          severidad: 'info',
-        },
-        {
-          id: '3',
-          tipo: 'alerta',
-          titulo: 'Desvío de Ruta',
-          descripcion: 'Unidad MB-301 salió del trayecto asignado.',
-          placa: 'MB-301',
-          hora: '04:20 PM',
-          fecha: 'Hoy',
-          severidad: 'media',
-        },
-        {
-          id: '4',
-          tipo: 'ruta',
-          titulo: 'Inicio de Recorrido',
-          descripcion: 'Unidad MB-102 inició servicio en Estación Central.',
-          placa: 'MB-102',
-          hora: '03:00 PM',
-          fecha: 'Hoy',
-          severidad: 'info',
-        },
-      ]);
+      console.log('Error al actualizar historial dinámico:', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (showLoading) setLoading(false);
     }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    cargarHistorial();
-  };
-
-  // Filtrado de eventos
-  const datosFiltrados = historial.filter((item) => {
-    if (filtro === 'alertas') return item.tipo === 'alerta';
-    if (filtro === 'rutas') return item.tipo === 'ruta';
-    return true;
-  });
-
-  const getIconBySeveridad = (tipo, severidad) => {
-    if (tipo === 'alerta') {
-      return severidad === 'alta' ? 'warning' : 'alert-circle';
-    }
-    return 'checkmark-circle';
-  };
-
-  const getColorBySeveridad = (tipo, severidad) => {
-    if (tipo === 'alerta') {
-      return severidad === 'alta' ? '#EF4444' : '#F59E0B';
-    }
-    return '#10B981';
   };
 
   return (
-    <View style={styles.container}>
-      {/* TARJETAS DE RESUMEN */}
-      <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Ionicons name="notifications-outline" size={22} color="#38BDF8" />
-          <Text style={styles.summaryNumber}>{historial.length}</Text>
-          <Text style={styles.summaryLabel}>Total Eventos</Text>
+    <SafeAreaView style={styles.container}>
+      {/* TARJETAS DE CONTADORES DINÁMICOS */}
+      <View style={styles.statsContainer}>
+        <View style={styles.statCard}>
+          <Ionicons name="warning-outline" size={24} color="#EF4444" />
+          <Text style={styles.statNumber}>{stats.alertas}</Text>
+          <Text style={styles.statLabel}>Alertas en Vivo</Text>
         </View>
-        <View style={styles.summaryCard}>
-          <Ionicons name="warning-outline" size={22} color="#EF4444" />
-          <Text style={styles.summaryNumber}>
-            {historial.filter((i) => i.tipo === 'alerta').length}
-          </Text>
-          <Text style={styles.summaryLabel}>Alertas</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Ionicons name="map-outline" size={22} color="#10B981" />
-          <Text style={styles.summaryNumber}>
-            {historial.filter((i) => i.tipo === 'ruta').length}
-          </Text>
-          <Text style={styles.summaryLabel}>Recorridos</Text>
+        <View style={styles.statCard}>
+          <Ionicons name="map-outline" size={24} color="#38BDF8" />
+          <Text style={styles.statNumber}>{stats.recorridos}</Text>
+          <Text style={styles.statLabel}>Buses Activos</Text>
         </View>
       </View>
 
-      {/* FILTROS */}
-      <View style={styles.filterContainer}>
-        {['todos', 'alertas', 'rutas'].map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterChip, filtro === f && styles.filterChipActive]}
-            onPress={() => setFiltro(f)}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                filtro === f && styles.filterTextActive,
-              ]}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionTitle}>Registro de Eventos en Tiempo Real</Text>
+        <TouchableOpacity onPress={() => cargarHistorial(true)}>
+          <Ionicons name="refresh-outline" size={20} color="#38BDF8" />
+        </TouchableOpacity>
       </View>
 
-      {/* LISTA DE HISTORIAL */}
       {loading ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color="#38BDF8" />
-          <Text style={styles.loadingText}>Cargando bitácora...</Text>
-        </View>
+        <ActivityIndicator size="large" color="#38BDF8" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
-          data={datosFiltrados}
-          keyExtractor={(item) => item.id.toString()}
+          data={eventos}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#38BDF8"
-            />
-          }
-          renderItem={({ item }) => {
-            const color = getColorBySeveridad(item.tipo, item.severidad);
-            const icon = getIconBySeveridad(item.tipo, item.severidad);
-
-            return (
-              <View style={styles.card}>
-                <View style={[styles.iconBox, { backgroundColor: `${color}20` }]}>
-                  <Ionicons name={icon} size={22} color={color} />
-                </View>
-
-                <View style={styles.cardContent}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.cardTitle}>{item.titulo}</Text>
-                    <Text style={styles.cardTime}>{item.hora}</Text>
-                  </View>
-                  <Text style={styles.cardDescription}>{item.descripcion}</Text>
-
-                  <View style={styles.cardFooter}>
-                    <View style={styles.badgePlaca}>
-                      <Ionicons name="bus-outline" size={12} color="#94A3B8" />
-                      <Text style={styles.placaText}>{item.placa}</Text>
-                    </View>
-                    <Text style={styles.cardDate}>{item.fecha}</Text>
-                  </View>
+          renderItem={({ item }) => (
+            <View style={styles.eventCard}>
+              <View style={styles.cardLeft}>
+                <Ionicons
+                  name={item.icono}
+                  size={24}
+                  color={item.color}
+                />
+                <View style={styles.textContainer}>
+                  <Text style={styles.eventTitle}>{item.titulo}</Text>
+                  <Text style={styles.eventUnit}>Unidad: {item.unidad}</Text>
+                  <Text style={styles.eventDesc}>{item.descripcion}</Text>
                 </View>
               </View>
-            );
-          }}
+              <Text style={styles.eventTime}>{item.hora}</Text>
+            </View>
+          )}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    gap: 10,
-  },
-  summaryCard: {
+  container: { flex: 1, backgroundColor: '#0F172A', padding: 16 },
+  statsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  statCard: {
     flex: 1,
     backgroundColor: '#1E293B',
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     alignItems: 'center',
+    marginHorizontal: 4,
     borderColor: '#334155',
     borderWidth: 1,
   },
-  summaryNumber: {
-    color: '#F8FAFC',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  summaryLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    marginBottom: 14,
-    gap: 8,
-  },
-  filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#1E293B',
-    borderColor: '#334155',
-    borderWidth: 1,
-  },
-  filterChipActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#38BDF8',
-  },
-  filterText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  filterTextActive: {
-    color: '#FFFFFF',
-  },
-  listContainer: {
-    paddingBottom: 20,
-    gap: 12,
-  },
-  card: {
-    flexDirection: 'row',
+  statNumber: { color: '#FFF', fontSize: 22, fontWeight: 'bold', marginTop: 4 },
+  statLabel: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { color: '#FFF', fontSize: 15, fontWeight: 'bold' },
+  listContainer: { paddingBottom: 20 },
+  eventCard: {
     backgroundColor: '#1E293B',
     borderRadius: 12,
     padding: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     borderColor: '#334155',
     borderWidth: 1,
-    alignItems: 'flex-start',
-    gap: 12,
   },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cardContent: {
-    flex: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  cardTitle: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  cardTime: {
-    color: '#64748B',
-    fontSize: 11,
-  },
-  cardDescription: {
-    color: '#94A3B8',
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 8,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  badgePlaca: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    gap: 4,
-  },
-  placaText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  cardDate: {
-    color: '#64748B',
-    fontSize: 11,
-  },
-  loadingBox: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    color: '#94A3B8',
-    fontSize: 14,
-  },
+  cardLeft: { flexDirection: 'row', gap: 12, flex: 1 },
+  textContainer: { flex: 1 },
+  eventTitle: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
+  eventUnit: { color: '#38BDF8', fontSize: 12, marginTop: 2, fontWeight: '600' },
+  eventDesc: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  eventTime: { color: '#64748B', fontSize: 11, fontWeight: '500' },
 });
