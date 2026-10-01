@@ -1,0 +1,10 @@
+services:
+  iot-simulator:
+    build: .
+    environment:
+      BACKEND_URL: http://host.docker.internal:3000
+      TELEMETRY_PATH: /api/unidades/telemetria
+      IOT_API_KEY: ${IOT_API_KEY:-cambiar-esta-clave}
+      INTERVAL_MS: 3000
+      TIME_SCALE: 10
+    restart: unless-stopped
